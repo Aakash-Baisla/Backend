@@ -15,4 +15,13 @@ app.use(express.urlencoded(
 app.use(express.static("public")); // Exposes a folder to serve assets (images, PDFs) directly to the web
 app.use(cookieParser()); // Parses browser cookies into req.cookies; used for secure JWT auth
 
+
+
+// routes import
+import useRouter from "./routes/user.routes.js"
+
+
+// routes declaration
+app.use("/api/v1/users",useRouter)
+
 export {app}
