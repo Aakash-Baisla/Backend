@@ -8,3 +8,5 @@ class ApiResponse {
         this.success = statusCode < 400; // Automatically sets to true if the status code is a success code (below 400)
     }
 }
+
+export {ApiResponse}
