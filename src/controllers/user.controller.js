@@ -106,3 +106,35 @@ const registerUser = asyncHandler(async(req,res)=>{
 })
 
 export {registerUser}
+
+
+
+
+/**
+ * ============================================================================
+ * FILE: user.controller.js
+ * ROLE: Controller Layer (Business Logic & Request Orchestration)
+ * ============================================================================
+ * 
+ * WHAT IS A CONTROLLER?
+ * - In Express / MVC architecture, controllers act as the "brain" of the app.
+ * - Routes point requests HERE. Models get queried FROM HERE.
+ * - Controllers process input, talk to the DB/services, and send responses.
+ * 
+ * ARCHITECTURAL FLOW:
+ * Client Request ➔ Express Route ➔ Middleware (Multer/Auth) ➔ CONTROLLER ➔ DB / Cloud ➔ Client Response
+ * 
+ * CORE RESPONSIBILITIES OF THIS FILE:
+ * 1. Extract Data: Read req.body (JSON/form data), req.files (Multer images), req.params/query.
+ * 2. Validate Input: Ensure required fields exist, trim whitespaces, throw ApiError on bad data.
+ * 3. Business Logic: Query Mongoose models (User.findOne, User.create), manage database ops.
+ * 4. External Services: Delegate image uploads to Cloudinary (uploadOnCloudinary).
+ * 5. Sanitize Output: Strip sensitive data (e.g., removing passwords & tokens from JSON).
+ * 6. Standardize Response: Return consistent JSON payloads using ApiResponse & HTTP status codes.
+ * 
+ * HELPER UTILITIES USED:
+ * - asyncHandler : Wraps async controllers to catch errors without repetitive try-catch blocks.
+ * - ApiError     : Custom error class to throw structured HTTP error responses (e.g., 400, 404, 409).
+ * - ApiResponse  : Custom class to wrap successful JSON output consistently.
+ * ============================================================================
+ */
