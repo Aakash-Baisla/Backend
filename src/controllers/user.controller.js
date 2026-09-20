@@ -38,27 +38,42 @@ const registerUser = asyncHandler(async(req,res)=>{
     // which causes this error to throw every single time.
     // MongoDB $or query checks if either username OR email already exists.
 
-    const existedUser = User.findOne({ // find one is using because the only first value we get it maybe email or username
+    const existedUser = await User.findOne({ // find one is using because the only first value we get it maybe email or username
         $or: [{ username }, { email }]
     })
     if(existedUser){
         throw new ApiError(409,"User with email or username already exists")
     }
+    console.log(req.files)
 
 
     //  STEP 4: Access local file paths saved by Multer middleware
     // Multer saves uploaded files temporarily to disk (e.g., ./public/temp)
     // Optional chaining prevents 'TypeError: Cannot read properties of undefined'
     // if req.files or avatar/coverImage array is missing.
-    const avatarLocalPath = req.files?.avatar[0]?.path
+    const avatarLocalPath = req.files?.avatar?.[0]?.path
     // Cover image is optional, so we handle cases where it might not be uploaded
-    const coverImageLocalPath = req.files?.coverImage[0]?.path
+    // const coverImageLocalPath = req.files?.coverImage?.[0]?.path
+
+    let coverImageLocalPath;
+    if(req.files && Array.isArray(req.files.coverImage) && req.files.coverImage.length > 0){
+        coverImageLocalPath = req.files.coverImage[0].path
+        }
+
+
 
     // check for especially avatar
     // Avatar is mandatory for registration
-    if(!avatarLocalPath){
-        throw new ApiError(400,"Avatar Required")
+    try {
+    const avatar = await uploadOnCloudinary(avatarLocalPath);
+    if (!avatar) {
+        return res.status(400).json({ message: "Cloudinary upload failed" });
     }
+    } catch (error) {
+    console.error("Cloudinary Error Details:", error);
+    return res.status(500).json({ message: error.message });
+    }
+
 
     // upload them to cloudinary,avatar
     // STEP 5: Upload local files to Cloudinary cloud storage
@@ -83,14 +98,14 @@ const registerUser = asyncHandler(async(req,res)=>{
         coverImage:coverImage?.url|| "",
         email,
         password,
-        username: username.tolowerCase()
+        username: username.toLowerCase()
     })
 
     // STEP 7: Retrieve user without sensitive data
     // Fetch the newly created user and exclude sensitive fields using .select()
     // FIX SYNTAX: Separated by spaces without commas ("-password -refreshToken")
     const createdUser = await User.findById(user._id).select(
-        "-password ,-refreshToken"
+        "-password -refreshToken"
     )
 
     if(!createdUser){
