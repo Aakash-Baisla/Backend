@@ -4,6 +4,38 @@ import {User} from "../models/user.models.js"
 import {uploadOnCloudinary} from "../utils/cloudinary.js"
 import { ApiResponse } from "../utils/ApiResponse.js"
 
+const generateAccessAndRefreshToken = async(userId)=>{
+    // ==============================================================================
+// 💡 THE SOUL OF THIS FUNCTION (IN PLAIN ENGLISH)
+// This is your token factory. When a user successfully logs in, this function:
+// 1. Fetches their account using their unique User ID.
+// 2. Prints two secure digital keys: an Access Token and a Refresh Token.
+// 3. Saves the Refresh Token inside the database so the backend can recognize it later.
+//
+// 🎫 ACCESS TOKEN (The Temporary Key):
+// -> A short-lived key (expires in 15–30 mins) sent with every single API request.
+// -> Proves to the server that the user is logged in right now.
+//
+// 📑 REFRESH TOKEN (The Master Key):
+// -> A long-lived key (lasts weeks/months) kept safely hidden away on the client.
+// -> Used exclusively behind the scenes to ask for a new Access Token once it dies.
+// ==============================================================================
+
+    try {
+        const user = await User.findById(userId)   
+        const accessToken = user.generateAccessToken()
+        const refreshToken = user.generateRefreshToken();
+
+        user.refreshToken = refreshToken
+        await user.save({validateBeforeSave: false})
+
+        return {accessToken,refreshToken}
+         
+    } catch (error) {
+        throw new ApiError(500,"Something went wrong while generating acces and refresh Token ")
+    }
+}
+
 const registerUser = asyncHandler(async(req,res)=>{
     // get user details from frontend
     // validation - not empty
@@ -120,7 +152,116 @@ const registerUser = asyncHandler(async(req,res)=>{
     )
 })
 
-export {registerUser}
+const loginUser = asyncHandler(async(req,res)=>{
+    // 1. EXTRACT DATA FROM REQUEST BODY
+    // 2. FIND THE USER IN THE DATABASE
+    // 3. CHECK THE PASSWORD
+    // 4. GENERATE ACCESS AND REFRESH TOKENS
+    // 5. DEFINE SECURE COOKIE OPTIONS
+    // 6. SEND SECURE COOKIES AND JSON RESPONSE
+
+ // 1. EXTRACT CREDENTIALS FROM THE FRONTEND REQUEST
+    // -> Use destructuring to pull email, password, and username out of req.body.
+    const{email, password,username} = req.body
+
+    // 2. VALIDATE MANDATORY FIELDS ARE NOT EMPTY
+    // -> Check if BOTH the email and username are missing from the request.
+    // -> If both are empty, stop execution immediately and throw a 400 Bad Request error.
+    if(!(email || username)){
+        throw new ApiError(400,"username or email is required")
+    }
+
+    // 3. SEARCH DATABASE FOR THE EXISTING USER
+    // -> Query the database using the '$or' operator to find a record.
+    // -> It looks for a document that matches EITHER the provided email OR the provided username.
+    const user = await User.findOne({
+        $or: [{email},{username}]
+    })
+
+    // 4. VERIFY IF THE USER ACUALLY EXISTS
+    // -> Check if the database query returned null (no user found).
+    // -> If no user exists with that email/username, throw a 404 Not Found error.
+    if(!user){
+        throw new ApiError(404,"User does not exist")
+    }
+
+    // 5. COMPARE AND VALIDATE THE PASSWORD
+    // -> Call the custom model method 'isPasswordCorrect' to compare the plain text password with the hashed database password.
+    // -> This step handles the decryption/comparison process behind the scenes.
+    const isPasswordValid = await user.isPasswordCorrect(password)
+
+
+     // 6. HANDLE INVALID PASSWORDS
+    // -> Check if the password verification failed (isPasswordValid is false).
+    // -> If it fails, throw a 401 Unauthorized error to block access.
+    if(!isPasswordValid){
+        throw new ApiError(401,"Invalid User Credentials")
+    }
+// Save the refresh token to the database to track active login sessions
+    const {accessToken,refreshToken} = await 
+    generateAccessAndRefreshToken(user._id)
+
+    const loggedInUser = await User.findById(user._id).
+    select("-password -refreshToken" )
+
+    // 5. send secure cookies & response
+    const options = {
+        httpOnly: true, // Prevents JavaScript from reading the cookie (protects against XSS) and Always set 'httpOnly: true' so ONLY the backend server can see and touch this cookie.
+        secure: true    // Ensures the cookie is only sent over HTTPS
+    };
+
+    return res
+    .status(200)
+    .cookie("accesToken",accessToken,options)
+    .cookie("refreshToken",refreshToken,options)
+    .json(
+        new ApiResponse(200,
+            {user: loggedInUser,accessToken,refreshToken},
+            "User Logged In Successfully")
+    )
+})
+
+
+const logoutUser = asyncHandler(async(req, res) => {
+
+    // Wrap the asynchronous controller in an `asyncHandler` wrapper
+    // WHY: This catches any unhandled promise rejections/errors automatically and passes them 
+    // to Express's central error-handling middleware, preventing server crashes without needing repetitive try-catch blocks.
+
+
+    // STEP 1: Invalidate the user's Refresh Token in the database
+    // `req.user` was attached by your authentication middleware (e.g., `verifyJWT`).
+    await User.findByIdAndUpdate(
+        req.user._id,
+        {
+            // `$set` with `undefined` (or `null`) removes/clears the `refreshToken` field.
+            // WHY: In JWT-based auth, access tokens are short-lived, while refresh tokens stay in the DB.
+            // Removing the refresh token from the database prevents the user from obtaining new access tokens after logging out.
+            $set: { refreshToken: undefined }
+        },
+        { new: true } // Return the modified document rather than the original (good practice)
+    )
+
+    // STEP 2: Configure cookie security options for clearing browser storage
+    // CRITICAL: These options MUST match the flags used when the cookies were originally set,
+    // otherwise the browser will fail to locate and clear them.
+    const options = {
+        httpOnly: true, // Prevents client-side JavaScript (e.g., XSS attacks) from reading the cookie
+        secure: true    // Ensures cookies are sent only over HTTPS connections
+    }
+
+    // STEP 3: Clear authentication cookies and send the response back to the client
+    return res
+    .status(200)
+    // `clearCookie` instructs the user's browser to delete the named cookie
+    .clearCookie("accessToken", options)
+    .clearCookie("refreshToken", options)
+    .json(
+        // Send a standardized API response object back to the client
+         new ApiResponse(200, {}, "User logout successfully")
+    )
+})
+export {registerUser,loginUser, logoutUser}
 
 
 
