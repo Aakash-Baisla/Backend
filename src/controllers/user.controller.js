@@ -3,6 +3,7 @@ import {ApiError} from "../utils/ApiErrors.js"
 import {User} from "../models/user.models.js"
 import {uploadOnCloudinary} from "../utils/cloudinary.js"
 import { ApiResponse } from "../utils/ApiResponse.js"
+import jwt from "jsonwebtoken"
 
 const generateAccessAndRefreshToken = async(userId)=>{
     // ==============================================================================
@@ -93,18 +94,22 @@ const registerUser = asyncHandler(async(req,res)=>{
         }
 
 
+        // NOTE: Deleted the previous validation try-catch block here because it called 
+// uploadOnCloudinary() prematurely. Since our updated Cloudinary utility deletes 
+// the local file instantly using fs.unlinkSync(), a second call down in Step 5 
+// would look for a missing file and throw a false "Avatar Required" (ENOENT) error.
 
     // check for especially avatar
     // Avatar is mandatory for registration
-    try {
-    const avatar = await uploadOnCloudinary(avatarLocalPath);
-    if (!avatar) {
-        return res.status(400).json({ message: "Cloudinary upload failed" });
-    }
-    } catch (error) {
-    console.error("Cloudinary Error Details:", error);
-    return res.status(500).json({ message: error.message });
-    }
+    // try {
+    // const avatar = await uploadOnCloudinary(avatarLocalPath);
+    // if (!avatar) {
+    //     return res.status(400).json({ message: "Cloudinary upload failed" });
+    // }
+    // } catch (error) {
+    // console.error("Cloudinary Error Details:", error);
+    // return res.status(500).json({ message: error.message });
+    // }
 
 
     // upload them to cloudinary,avatar
@@ -207,7 +212,7 @@ const loginUser = asyncHandler(async(req,res)=>{
     // 5. send secure cookies & response
     const options = {
         httpOnly: true, // Prevents JavaScript from reading the cookie (protects against XSS) and Always set 'httpOnly: true' so ONLY the backend server can see and touch this cookie.
-        secure: true    // Ensures the cookie is only sent over HTTPS
+        secure: false    // Ensures the cookie is only sent over HTTPS
     };
 
     return res
@@ -247,7 +252,7 @@ const logoutUser = asyncHandler(async(req, res) => {
     // otherwise the browser will fail to locate and clear them.
     const options = {
         httpOnly: true, // Prevents client-side JavaScript (e.g., XSS attacks) from reading the cookie
-        secure: true    // Ensures cookies are sent only over HTTPS connections
+        secure: false    // Ensures cookies are sent only over HTTPS connections
     }
 
     // STEP 3: Clear authentication cookies and send the response back to the client
@@ -261,7 +266,54 @@ const logoutUser = asyncHandler(async(req, res) => {
          new ApiResponse(200, {}, "User logout successfully")
     )
 })
-export {registerUser,loginUser, logoutUser}
+
+const refreshAccessToken = asyncHandler(async(req,res)=>{
+    const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken
+
+    if(!incomingRefreshToken){
+        throw new ApiError(401,"Unauthorized access")
+    }
+
+    try {
+        const decodedToken = jwt.verify(incomingRefreshToken,process.env.REFRESH_TOKEN_SECRET)
+    
+        const user = await User.findById(decodedToken?._id)
+    
+        if(!user){
+            throw new ApiError(401,"Invalid refresh token")
+        }
+    
+        if(incomingRefreshToken !== user?.refreshToken){
+            throw new ApiError(401,"refresh token is expired or used")
+        }
+    
+        const options = {
+            httpOnly: true,
+            secure:false,
+        }
+    
+        const {accessToken,newRefreshToken} = await generateAccessAndRefreshToken(user._id)
+    
+        return res
+        .status(200)
+        .cookie("accessToken",accessToken,options)
+        .cookie("refreshToken",newRefreshToken,options)
+        .json(
+            new ApiResponse(
+                200,
+                {accessToken, refreshToken :newRefreshToken},
+                "Acsess Token Refreshed"
+            )
+        )
+    } catch (error) {
+        throw new ApiError(401, error?.message || 
+            "Invalid refresh token"
+        )
+    }
+
+})
+
+export {registerUser,loginUser, logoutUser,refreshAccessToken}
 
 
 
