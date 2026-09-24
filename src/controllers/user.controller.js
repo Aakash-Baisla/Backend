@@ -434,6 +434,187 @@ const updateUserCoverImage = asyncHandler(async (req,res)=>{
     .json(new ApiResponse(200,user,"CoverImage uploaded successfully"))
 })
 
+
+const getUserChannelProfile = asyncHandler(async(req, res) => {
+    // 1. EXTRACT DATA: Get the username from the URL parameters
+    // EXAMPLE: User visits "/api/v1/users/c/aakashbaisla" -> username = "aakashbaisla"
+    const { username } = req.params
+
+    // 2. VALIDATION
+    if (!username?.trim()) {
+        throw new ApiError(400, "Username is missing")
+    }
+
+    // 3. AGGREGATION PIPELINE (The Assembly Line)
+    const channel = await User.aggregate([
+        
+        /* 
+           STAGE 1: $match
+           -------------------------------------------------------------------------
+           INPUT (Raw collection): Three distinct user documents exist in the DB.
+           RULE: Find username === "aakashbaisla"
+           
+           OUTPUT OF THIS STAGE:
+           [
+               { "_id": "USR_AAKASH", "username": "aakashbaisla", "fullName": "Aakash Baisla" }
+           ]
+        */
+        {
+            $match : {
+                username : username?.toLowerCase()
+            }
+        },
+
+        /* 
+           STAGE 2: $lookup (Find subscribers)
+           -------------------------------------------------------------------------
+           INPUT: The user document from Stage 1 [USR_AAKASH]
+           LOGIC: Look inside the "subscriptions" collection. Find documents where 
+                  the "channel" field matches "USR_AAKASH".
+                  
+           MOCK DATA IN SUBSCRIPTIONS COLLECTION:
+           - { subscriber: "USR_VIEWER1", channel: "USR_AAKASH" } <-- Match!
+           - { subscriber: "USR_VIEWER2", channel: "USR_AAKASH" } <-- Match!
+           
+           OUTPUT OF THIS STAGE (A new "subscribers" array is attached):
+           [
+               { 
+                   "_id": "USR_AAKASH", 
+                   "username": "aakashbaisla",
+                   "subscribers": [
+                       { "subscriber": "USR_VIEWER1", "channel": "USR_AAKASH" },
+                       { "subscriber": "USR_VIEWER2", "channel": "USR_AAKASH" }
+                   ]
+               }
+           ]
+        */
+        {
+            $lookup : {
+                from: "subscriptions",
+                localField: "_id",
+                foreignField : "channel",
+                as: "subscribers"
+            }
+        },
+
+        /* 
+           STAGE 3: $lookup (Find who this channel subscribed to)
+           -------------------------------------------------------------------------
+           INPUT: The document from Stage 2
+           LOGIC: Look inside the "subscriptions" collection. Find documents where 
+                  the "subscriber" field matches "USR_AAKASH".
+                  
+           MOCK DATA IN SUBSCRIPTIONS COLLECTION:
+           - { subscriber: "USR_AAKASH", channel: "USR_BAISLA_CHANNEL" } <-- Match!
+           
+           OUTPUT OF THIS STAGE (A new "subscribedTo" array is attached):
+           [
+               { 
+                   "_id": "USR_AAKASH", 
+                   "username": "aakashbaisla",
+                   "subscribers": [...],
+                   "subscribedTo": [
+                       { "subscriber": "USR_AAKASH", "channel": "USR_BAISLA_CHANNEL" }
+                   ]
+               }
+           ]
+        */
+        {
+            $lookup : {
+                from: "subscriptions",
+                localField: "_id",
+                foreignField : "subscriber",
+                as: "subscribedTo"
+            }
+        },
+
+        /* 
+           STAGE 4: $addFields (Calculate counts and relationship status)
+           -------------------------------------------------------------------------
+           INPUT: The document with both populate arrays from Stage 3
+           LOGIC: 
+             - subscribersCount = length of subscribers array (2 items)
+             - channelSubscribedToCount = length of subscribedTo array (1 item)
+             - isSubscribed = Is logged-in user (e.g., "USR_VIEWER1") inside subscribers? Yes!
+             
+           OUTPUT OF THIS STAGE:
+           [
+               { 
+                   "_id": "USR_AAKASH", 
+                   "username": "aakashbaisla",
+                   "subscribers": [...],
+                   "subscribedTo": [...],
+                   "subscribersCount": 2,
+                   "channelSubscribedToCount": 1,
+                   "isSubscribed": true
+               }
+           ]
+        */
+        {
+            $addFields :{
+                subscribersCount : {
+                    $size: "$subscribers"
+                },
+                channelSubscribedToCount : {
+                    $size: "$subscribedTo"
+                },
+                isSubscribed : {
+                    $cond :{
+                        if : { $in : [req.user?._id, "$subscribers.subscriber"] },
+                        then: true,
+                        else: false
+                    }
+                }
+            }
+        },
+
+        /* 
+           STAGE 5: $project (Clean response data)
+           -------------------------------------------------------------------------
+           INPUT: The fully calculated document from Stage 4
+           LOGIC: Drop the heavy raw "subscribers" and "subscribedTo" arrays. Only keep 
+                  the requested fields (1 = keep).
+                  
+           OUTPUT OF THIS STAGE:
+           [
+               { 
+                   "username": "aakashbaisla",
+                   "fullName": "Aakash Baisla",
+                   "subscribersCount": 2,
+                   "channelSubscribedToCount": 1,
+                   "isSubscribed": true
+               }
+           ]
+        */
+        {
+            $project :{
+                fullName: 1,
+                username: 1,
+                subscribersCount: 1,
+                channelSubscribedToCount: 1,
+                isSubscribed: 1,
+                avatar: 1,
+                coverImage: 1,
+                email : 1
+            }
+        }
+    ])
+
+    // 4. CHECK RESULTS
+    if (!channel?.length) {
+        throw new ApiError(404, "Channel does not exist")
+    }
+
+    // 5. RESPONSE
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(200, channel[0], "User Channel Fetched Successfully")
+        )
+})
+
+
+
 export {registerUser,
     loginUser,
     logoutUser,
@@ -442,7 +623,9 @@ export {registerUser,
     getCurrentUser,
     updateAccountDetails,
     updateUserAvatar,
-    updateUserCoverImage}
+    updateUserCoverImage,
+    getUserChannelProfile
+}
 
 
 
