@@ -337,7 +337,7 @@ const changeCurrentPassword = asyncHandler(async(req,res)=>{
 const getCurrentUser = asyncHandler(async(req,res)=>{
     return res
     .status(200)
-    .json(200,req.user,"current user fetched successfuly")
+    .json(new ApiResponse(200,req.user,"current user fetched successfuly"))
 })
 
 
@@ -348,7 +348,7 @@ const updateAccountDetails = asyncHandler(async(req,res)=>{
         throw new ApiError(400, "All fields are required")
     }
 
-    const user = User.findOneAndUpdate(
+    const user = await User.findOneAndUpdate(
         req.user?._id,{
             $set:{
                 fullName,
@@ -365,39 +365,51 @@ const updateAccountDetails = asyncHandler(async(req,res)=>{
 })
 
 
-const updateUserAvatar = asyncHandler(async (req,res)=>{
+const updateUserAvatar = asyncHandler(async (req, res) => {
     const avatarLocalPath = req.file?.path
 
-    if(!avatarLocalPath){
-        throw new ApiError(400,"Avatar file is missing")
+    if (!avatarLocalPath) {
+        throw new ApiError(400, "Avatar file is missing")
     }
 
+    // 1. Grab the old avatar URL from the logged-in user object before updating
+    // (Assuming req.user contains the full user document from your auth middleware)
+    const oldAvatarUrl = req.user?.avatar
+
+    // 2. Upload the new file to Cloudinary
     const avatar = await uploadOnCloudinary(avatarLocalPath)
 
-    if(!avatar.url){
-        throw new ApiError(400,"error while uploading avatar")
+    if (!avatar.url) {
+        throw new ApiError(400, "Error while uploading avatar")
     }
 
+    // 3. Update the database with the new URL
     const user = await User.findByIdAndUpdate(
         req.user?._id,
         {
-            $set : {
-                avatar : avatar.url
+            $set: {
+                avatar: avatar.url
             }
         },
-        {new :true}
+        { new: true }
     ).select("-password")
 
+    // 4. Safely clean up the old avatar from Cloudinary now that oldAvatarUrl is defined
+    if (oldAvatarUrl) {
+        await deleteFromCloudinary(oldAvatarUrl)
+    }
+
     return res
-    .status(200)
-    .json(new ApiResponse(200,user,"Avatar uploaded successfully"))
+        .status(200)
+        .json(new ApiResponse(200, user, "Avatar uploaded successfully"))
 })
+
 
 
 const updateUserCoverImage = asyncHandler(async (req,res)=>{
     const coverImageLocalPath = req.file?.path
 
-    if(!avatarLocalPath){
+    if(!coverImageLocalPath){
         throw new ApiError(400,"Avatar file is missing")
     }
 
