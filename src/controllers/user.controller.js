@@ -218,7 +218,7 @@ const loginUser = asyncHandler(async(req,res)=>{
 
     return res
     .status(200)
-    .cookie("accesToken",accessToken,options)
+    .cookie("accessToken",accessToken,options)
     .cookie("refreshToken",refreshToken,options)
     .json(
         new ApiResponse(200,
@@ -243,7 +243,11 @@ const logoutUser = asyncHandler(async(req, res) => {
             // `$set` with `undefined` (or `null`) removes/clears the `refreshToken` field.
             // WHY: In JWT-based auth, access tokens are short-lived, while refresh tokens stay in the DB.
             // Removing the refresh token from the database prevents the user from obtaining new access tokens after logging out.
-            $set: { refreshToken: undefined }
+            // ($set:) { refreshToken: undefined }
+            // we can use unset here 
+            $unset : {
+                refreshToken: 1 // this removes the field from document
+            }
         },
         { new: true } // Return the modified document rather than the original (good practice)
     )
@@ -253,7 +257,7 @@ const logoutUser = asyncHandler(async(req, res) => {
     // otherwise the browser will fail to locate and clear them.
     const options = {
         httpOnly: true, // Prevents client-side JavaScript (e.g., XSS attacks) from reading the cookie
-        secure: false    // Ensures cookies are sent only over HTTPS connections
+        secure: true    // Ensures cookies are sent only over HTTPS connections
     }
 
     // STEP 3: Clear authentication cookies and send the response back to the client
@@ -666,7 +670,7 @@ const getWatchHistory = asyncHandler(async(req,res)=>{
     .json(
         new ApiResponse(
             200,
-            user[0].getWatchHistory,
+            user[0].watchHistory ,
             "Watch History fetched successfully"
         )
     )
